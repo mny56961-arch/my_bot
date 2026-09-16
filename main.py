@@ -1,92 +1,72 @@
-import os, threading, json, time
-from flask import Flask
 import telebot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telebot import types
+import requests
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 8554489917 # <-- Change this to your Telegram ID from @userinfobot
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
+BOT_TOKEN = "8854534383:AAHhSB8pzt1aMrmu7jChBU9OJN9_ItQfzFQ"
+ADMIN_ID = 8554489917
+MY_CASHI_NUMBER = "401321813"
+SMM_API_URL = "https://smmstone.com/api/v2"
+SMM_API_KEY = "2ffae4f4348a6719f0208a37f01f353b"
 
-SERVICES = {
-    "insta_follow": {"name": "👥 Instagram Followers [Guaranteed]", "price": 3000},
-    "tiktok_views": {"name": "👁️ TikTok Views", "price": 500},
-    "telegram_members": {"name": "👤 Telegram Members", "price": 2000},
-}
-
-DATA_FILE = "users.json"
-def load():
-    return json.load(open(DATA_FILE,'r',encoding='utf-8')) if os.path.exists(DATA_FILE) else {}
-def save(d):
-    json.dump(d, open(DATA_FILE,'w',encoding='utf-8'), ensure_ascii=False, indent=2)
-
-# Flask for Render
-app = Flask(__name__)
-@app.route('/')
-def home(): return "Rashq Bot Live ✅"
-threading.Thread(target=lambda: app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000))), daemon=True).start()
-
-def main_kb():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("🛒 Services"), KeyboardButton("💰 My Balance"))
-    kb.add(KeyboardButton("📦 New Order"), KeyboardButton("📞 Support"))
-    return kb
+bot = telebot.TeleBot(BOT_TOKEN)
+user_balances = {}
 
 @bot.message_handler(commands=['start'])
 def start(m):
-    users = load()
-    uid = str(m.chat.id)
-    if uid not in users:
-        users[uid] = {"balance": 0, "orders": []}
-        save(users)
-    bot.send_message(m.chat.id, f"Welcome {m.from_user.first_name} 🔥\n\nProfessional SMM Services Bot\nYour Balance: {users[uid]['balance']} SDG\n\nChoose from menu:", reply_markup=main_kb())
+    mk = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    mk.add("💳 شحن عبر ماي كاشي", "🛒 طلب متابعين")
+    mk.add("💰 رصيدي")
+    bot.send_message(m.chat.id, f"🔥 متجر الرشق\n\n📱 شحن ماي كاشي: {MY_CASHI_NUMBER}\n💰 رصيدك: {user_balances.get(m.chat.id,0)} جنيه", reply_markup=mk)
 
-@bot.message_handler(func=lambda m: m.text == "🛒 Services")
-def services(m):
-    text = "📋 <b>Service List:</b>\n\n"
-    markup = InlineKeyboardMarkup()
-    for key, s in SERVICES.items():
-        text += f"{s['name']} - {s['price']} SDG / 1K\n"
-        markup.add(InlineKeyboardButton(s['name'], callback_data=f"order_{key}"))
-    bot.send_message(m.chat.id, text, reply_markup=markup)
+@bot.message_handler(func=lambda m: m.text == "💳 شحن عبر ماي كاشي")
+def charge(m):
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("5000ج = 1000 متابع", callback_data="charge_5000"))
+    kb.add(types.InlineKeyboardButton("10000ج = 2500 متابع", callback_data="charge_10000"))
+    kb.add(types.InlineKeyboardButton("20000ج = 6000 متابع", callback_data="charge_20000"))
+    bot.send_message(m.chat.id, f"حول على {MY_CASHI_NUMBER} ورسل صورة الاشعار", reply_markup=kb)
 
-@bot.message_handler(func=lambda m: m.text == "💰 My Balance")
-def balance(m):
-    users = load()
-    b = users.get(str(m.chat.id), {}).get("balance", 0)
-    bot.send_message(m.chat.id, f"💰 Your Balance: {b} SDG\n\nTo recharge contact admin: @Askar", reply_markup=main_kb())
+@bot.callback_query_handler(func=lambda c: c.data.startswith("charge_"))
+def charge_cb(c):
+    amount = c.data.split("_")[1]
+    bot.send_message(c.message.chat.id, f"تمام حول {amount} على {MY_CASHI_NUMBER} ورسل صورة الاشعار هنا 👇")
+    bot.register_next_step_handler(c.message, lambda msg: wait_screenshot(msg, amount))
 
-@bot.message_handler(func=lambda m: m.text == "📦 New Order")
-def new_order(m):
-    bot.send_message(m.chat.id, "Send account/post link, then choose service from 🛒 Services")
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("order_"))
-def handle_order(c):
-    key = c.data.replace("order_", "")
-    s = SERVICES[key]
-    bot.send_message(c.message.chat.id, f"✅ You selected: {s['name']}\nPrice: {s['price']}\n\nNow send link like this:\n<code>{key} https://instagram.com/username</code>")
-
-@bot.message_handler(func=lambda m: True)
-def all_text(m):
-    if m.text.startswith(tuple(SERVICES.keys())):
-        users = load()
-        uid = str(m.chat.id)
-        parts = m.text.split()
-        if len(parts) < 2:
-            bot.send_message(m.chat.id, "Missing link. Send: service + link")
-            return
-        service_key, link = parts[0], parts[1]
-        order_id = f"#{int(time.time())}"
-        users[uid]["orders"].append({"id": order_id, "service": service_key, "link": link, "status": "Pending"})
-        save(users)
-        bot.send_message(m.chat.id, f"✅ Order Received {order_id}\nService: {SERVICES[service_key]['name']}\nLink: {link}\nWill be processed in few hours")
-        try: bot.send_message(ADMIN_ID, f"New Order 🔥\nFrom: {m.from_user.first_name} @{m.from_user.username}\n{service_key}\n{link}")
-        except: pass
-    elif m.text == "📞 Support":
-        bot.send_message(m.chat.id, "Contact Admin: @Askar")
+def wait_screenshot(m, amount):
+    if m.content_type == 'photo':
+        kb = types.InlineKeyboardMarkup()
+        kb.add(
+            types.InlineKeyboardButton(f"✅ تأكيد {amount}", callback_data=f"confirm_{m.chat.id}_{amount}"),
+            types.InlineKeyboardButton("❌ رفض", callback_data=f"reject_{m.chat.id}")
+        )
+        bot.send_message(ADMIN_ID, f"🔔 طلب شحن {amount} من {m.chat.id}")
+        bot.forward_message(ADMIN_ID, m.chat.id, m.message_id)
+        bot.send_message(ADMIN_ID, "أكد بعد ما تشوف MyCashi", reply_markup=kb)
+        bot.send_message(m.chat.id, "⏳ انتظر التأكيد")
     else:
-        if m.text not in ["📞 Support", "🛒 Services", "💰 My Balance", "📦 New Order"]:
-            bot.send_message(m.chat.id, "Choose from menu below 👇", reply_markup=main_kb())
+        bot.send_message(m.chat.id, "رسل صورة بس")
 
-while True:
-    try: bot.polling(none_stop=True, timeout=60)
-    except: time.sleep(5)
+@bot.callback_query_handler(func=lambda c: c.data.startswith("confirm_"))
+def confirm(c):
+    _, uid, amt = c.data.split("_")
+    uid=int(uid); amt=int(amt)
+    user_balances[uid] = user_balances.get(uid,0)+amt
+    bot.send_message(uid, f"✅ تم شحن {amt}ج - رصيدك {user_balances[uid]}")
+    bot.edit_message_text(f"تم ✅ {amt} للعميل {uid}", c.message.chat.id, c.message.message_id)
+
+@bot.message_handler(func=lambda m: m.text == "🛒 طلب متابعين")
+def order(m):
+    bot.send_message(m.chat.id, "رسل رابط حسابك")
+    bot.register_next_step_handler(m, get_link)
+
+def get_link(m):
+    link=m.text
+    bot.send_message(m.chat.id, "كم العدد؟ 1000 - 10000")
+    bot.register_next_step_handler(m, lambda msg: do_order(msg, link))
+
+def do_order(m, link):
+    qty=int(m.text)
+    bal=user_balances.get(m.chat.id,0)
+    cost = qty*5 # 5 جنيه للمتابع مثلا
+    if bal < cost:
+        bot.send_message(m.chat.id, f"رصيدك ما بكفي،

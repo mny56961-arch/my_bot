@@ -1,30 +1,44 @@
-import os
-import time
-import telebot
+import os, time, json, random, threading
 from flask import Flask
-import threading
+import telebot
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
+bot = telebot.TeleBot(BOT_TOKEN)
+
+TAHFIZ = [
+    "يا عسكر استمر 💪 انت ماشي صح",
+    "كل يوم بيدا بقربك لحلمك 🔥",
+    "ما تقيف، الاستمرارية هي السر ✨",
+    "انت أقوى من الكسل 👊",
+    "بيدا اليوم = نجاح بكرة 🚀"
+]
 
 app = Flask(__name__)
 @app.route('/')
-def home():
-    return "Bot is Alive!"
+def home(): return "Bot Live ✅"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
-threading.Thread(target=run_flask).start()
+threading.Thread(target=run_flask, daemon=True).start()
 
 @bot.message_handler(commands=['start','bida'])
 def start(m):
-    bot.send_message(m.chat.id, f"يا {m.from_user.first_name} البوت شغال ✅")
+    bot.send_message(m.chat.id, f"""يا {m.from_user.first_name} مرحب بيك 🔥
 
-@bot.message_handler(func=lambda m: True)
+ /bida - بيدا
+ /tahfiz - تحفيز
+ /my - رسائلي
+
+أرسل أي شي أحفظو ليك ✅""")
+
+@bot.message_handler(commands=['tahfiz'])
+def tah(m):
+    bot.send_message(m.chat.id, random.choice(TAHFIZ))
+
+@bot.message_handler(func=lambda x: True)
 def all_msg(m):
-    bot.send_message(m.chat.id, f"احفظت: {m.text}")
+    bot.send_message(m.chat.id, f"✅ حفظت: {m.text}\n{random.choice(TAHFIZ)}")
 
 while True:
     try:

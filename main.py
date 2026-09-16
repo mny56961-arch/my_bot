@@ -1,82 +1,138 @@
-import telebot, os, time, threading, requests
-from flask import Flask
+# bot.py - بوت شحن العاب + رشق - ماي كاشي فقط
+import telebot
 from telebot import types
+import sqlite3
 
 BOT_TOKEN = "8854534383:AAHhSB8pzt1aMrmu7jChBU9OJN9_ItQfzFQ"
 ADMIN_ID = 8554489917
-MY_CASHI = "401321813"
-SMM_KEY = "2ffae4f4348a6719f0208a37f01f353b"
-SMM_URL = "https://smmstone.com/api/v2"
+MYCASH_NUM = "401321813" # رقم ماي كاشي بس
 
-bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
-app = Flask(__name__)
-balances = {}
+bot = telebot.TeleBot(BOT_TOKEN)
 
-@app.route('/')
-def home(): return "Bot is Alive!"
+# --- قاعدة البيانات ---
+conn = sqlite3.connect('store.db', check_same_thread=False)
+c = conn.cursor()
+c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)''')
+c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, service TEXT, player_id TEXT, status TEXT)''')
+conn.commit()
+
+def get_balance(uid):
+    c.execute("SELECT balance FROM users WHERE id=?", (uid,))
+    r = c.fetchone()
+    if not r:
+        c.execute("INSERT INTO users (id, balance) VALUES (?,0)", (uid,))
+        conn.commit()
+        return 0
+    return r[0]
+
+# --- الخدمات ---
+SERVICES = {
+    "ff_100": {"name": "💎 100 جوهرة - FF", "price": 3000, "cost": 1500},
+    "ff_310": {"name": "💎 310 جوهرة - FF", "price": 6500, "cost": 3500},
+    "ff_520": {"name": "💎 520 جوهرة - FF", "price": 10500, "cost": 6500},
+    "ff_1060": {"name": "💎 1060 جوهرة - FF", "price": 19500, "cost": 12000},
+    "pubg_60": {"name": "🎮 60 شدة - PUBG", "price": 3500, "cost": 2000},
+    "pubg_325": {"name": "🎮 325 شدة - PUBG", "price": 13500, "cost": 8500},
+    "pubg_660": {"name": "🎮 660 شدة - PUBG", "price": 26000, "cost": 16500},
+    "ml_86": {"name": "🐉 86 جوهرة - ML", "price": 4000, "cost": 2200},
+    "ml_172": {"name": "🐉 172 جوهرة - ML", "price": 7500, "cost": 4500},
+    "ml_344": {"name": "🐉 344 جوهرة - ML", "price": 14500, "cost": 9000},
+    "insta_1k": {"name": "📸 1000 متابع انستا", "price": 5000, "cost": 800},
+    "tiktok_10k": {"name": "🎵 10K مشاهدة تيك توك", "price": 3000, "cost": 300},
+    "yt_1k": {"name": "▶️ 1000 مشترك يوتيوب", "price": 15000, "cost": 6000},
+}
 
 @bot.message_handler(commands=['start'])
 def start(m):
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add("💳 شحن ماي كاشي", "🛒 طلب متابعين")
-    kb.add("💰 رصيدي")
-    bot.send_message(m.chat.id, f"🔥 متجر الرشق\n\n💳 ماي كاشي: {MY_CASHI}\n💰 رصيدك: {balances.get(m.chat.id,0)}ج", reply_markup=kb)
+    bal = get_balance(m.chat.id)
+    mk = types.InlineKeyboardMarkup(row_width=2)
+    mk.add(
+        types.InlineKeyboardButton("💎 فري فاير", callback_data="cat_ff"),
+        types.InlineKeyboardButton("🎮 ببجي", callback_data="cat_pubg"),
+        types.InlineKeyboardButton("🐉 MLBB", callback_data="cat_ml"),
+        types.InlineKeyboardButton("🚀 رشق", callback_data="cat_smm"),
+    )
+    mk.add(
+        types.InlineKeyboardButton(f"💰 رصيدك: {bal}ج", callback_data="balance"),
+        types.InlineKeyboardButton("💳 شحن رصيد", callback_data="charge"),
+    )
+    bot.send_message(m.chat.id, f"🔥 متجر السودان الشامل 🔥\n\nأهلا {m.from_user.first_name}!\nرصيدك: {bal}ج\n\n👇 اختار القسم:", reply_markup=mk)
 
-@bot.message_handler(func=lambda m: m.text=="💳 شحن ماي كاشي")
-def charge_info(m):
-    bot.send_message(m.chat.id, f"حول على: {MY_CASHI}\nوبعدها رسل صورة الاشعار هنا 👇")
+@bot.callback_query_handler(func=lambda x: x.data.startswith("cat_"))
+def cats(call):
+    cat = call.data.split("_")[1]
+    mk = types.InlineKeyboardMarkup(row_width=1)
+    for key, val in SERVICES.items():
+        if cat in key or (cat=="smm" and key.startswith(("insta","tiktok","yt"))):
+            mk.add(types.InlineKeyboardButton(f"{val['name']} - {val['price']}ج", callback_data=f"buy_{key}"))
+    mk.add(types.InlineKeyboardButton("⬅️ رجوع", callback_data="back_home"))
+    bot.edit_message_text("اختر الخدمة:", call.message.chat.id, call.message.message_id, reply_markup=mk)
 
-@bot.message_handler(func=lambda m: m.text=="💰 رصيدي")
-def my_bal(m):
-    bot.send_message(m.chat.id, f"💰 رصيدك: {balances.get(m.chat.id,0)}ج")
+@bot.callback_query_handler(func=lambda x: x.data == "back_home")
+def back_home(call):
+    start(call.message)
 
-@bot.message_handler(func=lambda m: m.text=="🛒 طلب متابعين")
-def order_start(m):
-    if balances.get(m.chat.id,0) < 100:
-        bot.send_message(m.chat.id, "❌ رصيدك ما كافي، اشحن اول")
+@bot.callback_query_handler(func=lambda x: x.data == "charge")
+def charge(call):
+    bot.send_message(call.message.chat.id, f"""
+💳 **شحن الرصيد - ماي كاشي**
+
+حول في:
+`{MYCASH_NUM}`
+ماي كاشي
+
+بعد التحويل رسل صورة الاشعار هنا 👇
+اقل شحن: 1000ج
+""", parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda x: x.data.startswith("buy_"))
+def buy(call):
+    key = call.data.replace("buy_", "")
+    item = SERVICES[key]
+    bal = get_balance(call.from_user.id)
+    if bal < item['price']:
+        bot.answer_callback_query(call.id, f"رصيدك {bal}ج غير كافي! المطلوب {item['price']}ج", show_alert=True)
         return
-    bot.send_message(m.chat.id, "📎 رسل رابط حسابك")
-    bot.register_next_step_handler(m, get_link)
+    c.execute("UPDATE users SET balance=balance-? WHERE id=?", (item['price'], call.from_user.id))
+    conn.commit()
+    msg = bot.send_message(call.message.chat.id, f"طلبت: {item['name']}\n\nرسل الـ ID حقك الآن:")
+    bot.register_next_step_handler(msg, lambda m: process_id(m, key))
 
-def get_link(m):
-    link = m.text
-    bot.send_message(m.chat.id, "🔢 كم متابع داير؟ مثلا 1000")
-    bot.register_next_step_handler(m, lambda msg: do_order(msg, link))
-
-def do_order(m, link):
-    try:
-        qty = int(m.text)
-        balances[m.chat.id] = balances.get(m.chat.id,0) - 5000
-        bot.send_message(m.chat.id, f"✅ تم استلام طلبك\n{qty} متابع لـ {link}\nسيتم التنفيذ قريبا")
-        bot.send_message(ADMIN_ID, f"طلب جديد من {m.chat.id}\n{qty} لـ {link}")
-    except:
-        bot.send_message(m.chat.id, "اكتب رقم صحيح")
+def process_id(m, service_key):
+    player_id = m.text
+    item = SERVICES[service_key]
+    c.execute("INSERT INTO orders (user_id, service, player_id, status) VALUES (?,?,?,?)", (m.chat.id, service_key, player_id, "pending"))
+    conn.commit()
+    oid = c.lastrowid
+    bot.send_message(m.chat.id, f"✅ تم استلام طلبك رقم {oid}\n{ item['name'] }\nID: {player_id}\n⏳ قيد التنفيذ")
+    profit = item['price'] - item['cost']
+    bot.send_message(ADMIN_ID, f"🔔 طلب جديد #{oid}\n👤 {m.chat.id} @{m.from_user.username}\n📦 {item['name']}\n🆔 {player_id}\n💰 ربحك: {profit}ج\n\n/done {oid}")
 
 @bot.message_handler(content_types=['photo'])
-def photo(m):
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("✅ تأكيد 5000", callback_data=f"ok_{m.chat.id}_5000"),
-            types.InlineKeyboardButton("❌ رفض", callback_data=f"no_{m.chat.id}"))
-    bot.send_message(ADMIN_ID, f"🔔 شحن من {m.chat.id}")
+def handle_photo(m):
     bot.forward_message(ADMIN_ID, m.chat.id, m.message_id)
-    bot.send_message(ADMIN_ID, "تأكيد؟", reply_markup=kb)
-    bot.send_message(m.chat.id, "⏳ انتظر تأكيد الادمن")
+    bot.send_message(ADMIN_ID, f"💳 اشعار شحن من {m.chat.id}\n/add {m.chat.id} المبلغ")
+    bot.send_message(m.chat.id, "✅ تم ارسال الاشعار للأدمن، سيتم شحن رصيدك خلال 5 دقائق")
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("ok_"))
-def confirm(c):
-    _, uid, amt = c.data.split("_")
-    uid=int(uid); amt=int(amt)
-    balances[uid]=balances.get(uid,0)+amt
-    bot.send_message(uid, f"✅ تم شحن {amt}ج\nرصيدك: {balances[uid]}ج")
-    bot.edit_message_text(f"تم ✅ {amt} للعميل {uid}", c.message.chat.id, c.message.message_id)
+@bot.message_handler(commands=['add', 'done'])
+def admin_cmd(m):
+    if m.from_user.id!= ADMIN_ID: return
+    try:
+        if m.text.startswith("/add"):
+            _, uid, amount = m.text.split()
+            c.execute("UPDATE users SET balance=balance+? WHERE id=?", (int(amount), int(uid)))
+            conn.commit()
+            bot.send_message(int(uid), f"✅ تم شحن رصيدك {amount}ج!\nرصيدك الآن: {get_balance(int(uid))}ج")
+        elif m.text.startswith("/done"):
+            oid = int(m.text.split()[1])
+            c.execute("SELECT user_id, service FROM orders WHERE id=?", (oid,))
+            o = c.fetchone()
+            if o:
+                c.execute("UPDATE orders SET status='done' WHERE id=?", (oid,))
+                conn.commit()
+                bot.send_message(o[0], f"✅ تم تنفيذ طلبك: {SERVICES[o[1]]['name']} بنجاح!")
+    except Exception as e:
+        bot.send_message(ADMIN_ID, f"خطأ: {e}")
 
-def run_bot():
-    while True:
-        try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60)
-        except Exception as e:
-            print(e); time.sleep(5)
-
-threading.Thread(target=run_bot, daemon=True).start()
-if __name__=="__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000)))
+print("Bot Running MyCash Only...")
+bot.infinity_polling()

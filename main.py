@@ -1,67 +1,74 @@
-import requests, telebot
+import requests, telebot, json, os
 
-# ===== بياناتك - ما تديها لزول =====
-API_URL = "https://smmstone.com/api/v2"
 API_KEY = "7f4affcc5c6cecdbf5d8e65df9d06421"
-BOT_TOKEN = "8854534383:AAHhSB8pzt1aMrmu7jChBU9OJN9_ItQfzFQ"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BANKAK = "401321813"
 
-BANKAK_NUMBER = "401321813"
-BANKAK_NAME = "حساب تاجر - 401321813"
+bot = telebot.TeleBot(8854534383:AAHhSB8pzt1aMrmu7jChBU9OJN9_ItQfzFQ)
+SERVICE_ID = 12634
 
-bot = telebot.TeleBot(BOT_TOKEN)
-SERVICE_ID = 12634 # تيك توك مشاهدات
+# ملف يحفظ الناس الشالت مجان عشان ما تشيل تاني
+FILE = "free_users.json"
+if not os.path.exists(FILE):
+    with open(FILE, 'w') as f: json.dump([], f)
 
-PRICE = {1000: 1500, 5000: 5000, 10000: 9000}
+def has_taken_free(user_id):
+    with open(FILE, 'r') as f:
+        users = json.load(f)
+    return user_id in users
+
+def add_free_user(user_id):
+    with open(FILE, 'r') as f:
+        users = json.load(f)
+    users.append(user_id)
+    with open(FILE, 'w') as f:
+        json.dump(users, f)
 
 @bot.message_handler(commands=['start'])
 def start(m):
-    bot.send_message(m.chat.id, f"""
-مرحبا بيك في متجر المشاهدات 👋
+    if not has_taken_free(m.from_user.id):
+        bot.send_message(m.chat.id, f"""
+🎉 ليك 100 مشاهدة مجاان هدية!
 
-💰 الاسعار:
-1000 مشاهدة = 1500ج
-5000 مشاهدة = 5000ج
-10000 مشاهدة = 9000ج
-
-🏦 الدفع بنكك:
-رقم الحساب: {BANKAK_NUMBER}
-
-الخطوات:
-1. حول المبلغ
-2. رسل صورة الاشعار
-3. رسل رابط فيديو التيك توك + العدد
-
+ارسل رابط فيديو التيك توك هسع
 مثال:
-https://vt.tiktok.com/xxx 1000
+https://vt.tiktok.com/ZSj...
+
+⚠️ المجان مرة واحدة بس لكل زول
+بعدها الشحن:
+1000 = 1500ج على بنكك {BANKAK}
+""")
+    else:
+        bot.send_message(m.chat.id, f"""
+انت شلت المجان قبل كده 😅
+
+هسع الشحن بقروش:
+1000 مشاهدة = 1500ج
+حول بنكك: {BANKAK}
+ورسل الاشعار + الرابط
 """)
 
-@bot.message_handler(func=lambda m: "tiktok.com" in m.text.lower() or "vt.tiktok" in m.text.lower())
-def order(m):
-    try:
-        parts = m.text.strip().split()
-        link = [p for p in parts if "tiktok" in p][0]
-        qty = int([p for p in parts if p.isdigit()][0])
-
-        if qty not in PRICE:
-            bot.reply_to(m, f"الكمية المتاحة: {list(PRICE.keys())}")
-            return
-
-        # يطلب من SmmStone
+@bot.message_handler(func=lambda m: "tiktok.com" in m.text)
+def handle_link(m):
+    user_id = m.from_user.id
+    
+    # لو ما شال مجان قبل كده
+    if not has_taken_free(user_id):
+        link = m.text.strip()
         data = {
             'key': API_KEY,
             'action': 'add',
             'service': SERVICE_ID,
             'link': link,
-            'quantity': qty
+            'quantity': 100
         }
-        r = requests.post(API_URL, data=data).json()
-
+        r = requests.post("https://smmstone.com/api/v2", data=data).json()
         if 'order' in r:
-            bot.reply_to(m, f"✅ تم تأكيد الدفع\nطلبك رقم {r['order']}\n{qty} مشاهدة ح تنزل في دقيقة\nشكرا لتحويلك لحساب {BANKAK_NUMBER}")
+            add_free_user(user_id)
+            bot.reply_to(m, f"✅ تم! 100 مشاهدة مجان اترسلت\nرقم طلبك: {r['order']}\n\nعجبتك الخدمة؟ اشحن تاني على {BANKAK}")
         else:
-            bot.reply_to(m, f"❌ الرصيد في الموقع خلص. حولت؟ راجع الادمن\nالخطأ: {r}")
+            bot.reply_to(m, f"❌ خطأ: {r}")
+    else:
+        bot.reply_to(m, f"انت استخدمت المجان قبل كده\nحول 1500ج على {BANKAK} لـ 1000 مشاهدة")
 
-    except Exception as e:
-        bot.reply_to(m, "الصيغة غلط. رسل الرابط والعدد\nمثال: https://vt.tiktok.com/xxx 1000")
-
-print("البوت شغال...")
+bot.infinity_polling()

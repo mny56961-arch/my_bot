@@ -1,107 +1,52 @@
-import os, json, requests, telebot, threading
-from flask import Flask
+import telebot
+from telebot import types
+import requests
 
+# ========== الاعدادات - غيرهم ==========
 BOT_TOKEN = "8854534383:AAHhSB8pzt1aMrmu7jChBU9OJN9_ItQfzFQ"
-ADMIN_ID = 8554489917
-API_KEY = "7f4affcc5c6cecdbf5d8e65df9d06421"
-SERVICE_ID = 12647  # TikTok Views [HQ]
-FILE = "free_users.json"
-MAX_FREE = 10
-
-app = Flask(__name__)
-@app.route('/')
-def home():
-    return "Bot Live - 10 Free Only"
+SMM_API_URL = "https://your-smm-site.com/api/v2"
+SMM_API_KEY = "6abc35554c254fd901cc12bd1eeef799"
+ADMIN_ID = 8554489917 # حط الايدي حقك في تليجرام
+# =====================================
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-if not os.path.exists(FILE):
-    with open(FILE, 'w') as f:
-        json.dump([], f)
+# قاعدة بيانات مؤقتة (بعدين بنربطها ب Google Sheet)
+users_wallet = {}
+orders = {}
 
-def get_users():
-    try:
-        with open(FILE, 'r') as f:
-            return json.load(f)
-    except:
-        return []
+# /start
+@bot.message_handler(commands=['start'])
+def start(message):
+    ref = message.text.split()
+    if len(ref) > 1:
+        # نظام احالات
+        referrer = ref[1]
+        bot.send_message(message.chat.id, f"مرحب بيك! جيت عن طريق {referrer} حتاخد خصم 10%")
 
-def has_taken(uid):
-    if str(uid) == str(ADMIN_ID):
-        return False
-    return uid in get_users()
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("🛒 متجر الرشق", "🎮 شحن العاب")
+    markup.add("📈 ترند السودان", "💰 محفظتي", "📦 طلباتي")
 
-def add_user(uid):
-    if str(uid) == str(ADMIN_ID):
-        return
-    users = get_users()
-    if uid not in users:
-        users.append(uid)
-        with open(FILE, 'w') as f:
-            json.dump(users, f)
+    bot.send_message(message.chat.id, f"""
+أهلا {message.from_user.first_name} في بوت الرشق الاوتوماتيك 🔥
 
-@bot.message_handler(commands=['start','reset','users','myid'])
-def cmds(m):
-    uid = m.from_user.id
-    t = m.text.strip()
-    users = get_users()
-    
-    if t == '/myid':
-        bot.reply_to(m, f"{uid}")
-        return
-    if t == '/reset' and str(uid) == str(ADMIN_ID):
-        with open(FILE, 'w') as f:
-            json.dump([], f)
-        bot.reply_to(m, "✅ تم تصفير المجان - تاني 10 اشخاص يقدرو")
-        return
-    if t == '/users' and str(uid) == str(ADMIN_ID):
-        bot.reply_to(m, f"شالو المجان: {len(users)}/10\n{users}")
-        return
+الدولار اليوم: 8800 جنيه
+الدفع: بنكك - ماي كاشي
 
-    # /start
-    left = MAX_FREE - len(users)
-    if left <= 0:
-        bot.send_message(m.chat.id, "❌ عفوا انتهى العرض المجاني\nالـ 10 اشخاص الاوائل شالو الـ 100\n\nح تفتح تاني قريب.")
-        return
-    
-    if not has_taken(uid):
-        bot.send_message(m.chat.id, f"🎉 مرحب بيك!\n\nباقي {left} اشخاص بس للمجان\n\nليك 100 مشاهدة تيك توك مجان - ارسل رابط الفيديو هسع (فيهو tiktok.com)")
-    else:
-        bot.send_message(m.chat.id, "⚠️ انت شلت الـ 100 المجان قبل كده\nتاني ما بتقدر - العرض لـ 10 اشخاص بس.")
+اختار من القائمة:
+""", reply_markup=markup)
 
-@bot.message_handler(func=lambda m: "tiktok.com" in m.text.lower() if m.text else False)
-def link(m):
-    uid = m.from_user.id
-    users = get_users()
-    
-    if len(users) >= MAX_FREE and uid not in users and str(uid) != str(ADMIN_ID):
-        bot.reply_to(m, "❌ انتهى المجان - 10 اشخاص شالو قبلك")
-        return
+# زر الرشق
+@bot.message_handler(func=lambda m: m.text == "🛒 متجر الرشق")
+def shop(message):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("1000 متابع تيك توك - 3500ج", callback_data="buy_1000_tiktok"))
+    markup.add(types.InlineKeyboardButton("1000 متابع انستا - 4000ج", callback_data="buy_1000_insta"))
+    markup.add(types.InlineKeyboardButton("10000 مشاهدة تيك توك - 2000ج", callback_data="buy_views"))
+    bot.send_message(message.chat.id, "اختار الخدمة:", reply_markup=markup)
 
-    if has_taken(uid):
-        bot.reply_to(m, "❌ انت شلتو قبل كده")
-        return
-
-    if len(users) >= MAX_FREE:
-        bot.reply_to(m, "❌ خلص - 10/10")
-        return
-
-    bot.reply_to(m, f"⏳ جاري ارسال 100 مشاهدة... باقي ليك {MAX_FREE - len(users) - 1} اشخاص بعدك")
-    
-    data = {'key': API_KEY, 'action': 'add', 'service': SERVICE_ID, 'link': m.text.strip(), 'quantity': 100}
-    try:
-        r = requests.post("https://smmstone.com/api/v2", data=data, timeout=20).json()
-        if 'order' in r:
-            add_user(uid)
-            left = MAX_FREE - len(get_users())
-            bot.send_message(m.chat.id, f"✅ تم ارسال 100 مشاهدة!\nرقم الطلب: {r['order']}\n\nباقي {left} اشخاص للمجان")
-        else:
-            bot.send_message(m.chat.id, f"❌ فشل: {r}")
-    except Exception as e:
-        bot.send_message(m.chat.id, f"خطأ: {e}")
-
-def run_bot():
-    bot.infinity_polling()
-
-threading.Thread(target=run_bot, daemon=True).start()
-app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+# لما يضغط شراء - يربط اوتوماتيك بموقع الرشق
+@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
+def handle_buy(call):
+    bot.send_message(call.message.chat.id, "رسل رابط حسابك (مثال:

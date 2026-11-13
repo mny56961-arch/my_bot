@@ -1,0 +1,33 @@
+import os
+import requests
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+TELEGRAM_TOKEN = os.environ.get("8449193515:AAHchMLksZ5cmlOJAXvZX8CqfN_M6gPkxRA")
+GROQ_KEY = os.environ.get("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")
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("أهلا! أنا بوتك الذكي، اسألني أي حاجة 😎")
+
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+    await update.message.chat.send_action("typing")
+    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+    data = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": "انت مساعد ذكي سوداني، بتتكلم بالدارجي السوداني، وبتجاوب على أي سؤال."},
+            {"role": "user", "content": user_text}
+        ]
+    }
+    try:
+        r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=30)
+        reply = r.json()["choices"][0]["message"]["content"]
+    except:
+        reply = "معليش، المخ نعسان شوية، جرب تاني"
+    await update.message.reply_text(reply)
+
+app = Application.builder().token(TELEGRAM_TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+app.run_polling()
